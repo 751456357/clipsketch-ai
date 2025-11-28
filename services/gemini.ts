@@ -40,6 +40,33 @@ export class GeminiService {
   }
 
   /**
+   * Robust JSON extraction helper
+   */
+  private static extractJSON(text: string): any {
+    let jsonString = text;
+    
+    // 1. Try to extract from markdown code blocks first (most reliable for thinking models)
+    const markdownMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (markdownMatch) {
+      jsonString = markdownMatch[1];
+    } else {
+      // 2. Fallback: find the outermost curly braces
+      const firstOpen = text.indexOf('{');
+      const lastClose = text.lastIndexOf('}');
+      if (firstOpen !== -1 && lastClose !== -1 && lastClose > firstOpen) {
+        jsonString = text.substring(firstOpen, lastClose + 1);
+      }
+    }
+
+    try {
+      return JSON.parse(jsonString);
+    } catch (e) {
+      console.error("JSON Parse Error. Raw text:", text);
+      throw new Error("AI 响应格式错误，无法解析 JSON。");
+    }
+  }
+
+  /**
    * Step 0: Analyze Video Frames to group steps
    */
   static async analyzeSteps(
@@ -61,14 +88,31 @@ export class GeminiService {
     Group consecutive frames that represent the SAME step or action.
     ${languageInstruction}
     
-    Requirements:
-    1. Return STRICTLY a JSON array of objects.
-    2. Format: {"steps": [{"indices": [0, 1], "description": "Text..."}, {"indices": [2], "description": "Text..."}]}
-    3. "indices" is an array of 0-based frame indices.
-    4. "description" is the text in the requested language.
-    5. Ensure all frames are covered.`;
+    REQUIRED OUTPUT FORMAT:
+    You must output a valid JSON object wrapped in a markdown code block.
+    
+    \`\`\`json
+    {
+      "steps": [
+        {
+          "indices": [0, 1],
+          "description": "Description of the first step covering frames 0 and 1"
+        },
+        {
+          "indices": [2],
+          "description": "Description of the second step covering frame 2"
+        }
+      ]
+    }
+    \`\`\`
+    
+    Rules:
+    1. "indices" is an array of 0-based frame indices.
+    2. "description" is the text in the requested language.
+    3. Ensure all frames are covered in order.
+    4. Do not include any conversational text outside the JSON code block.`;
 
-    const userContent: any[] = [{ type: "text", text: "Here are the frames:" }];
+    const userContent: any[] = [{ type: "text", text: "Here are the frames to analyze:" }];
     
     frames.forEach((frame) => {
       userContent.push({
@@ -91,10 +135,7 @@ export class GeminiService {
     if (!content) throw new Error("No response content from AI");
 
     try {
-      const jsonMatch = content.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-      const jsonString = jsonMatch ? jsonMatch[0] : content;
-      
-      const parsed = JSON.parse(jsonString);
+      const parsed = this.extractJSON(content);
       const steps = Array.isArray(parsed) ? parsed : (parsed.steps || []);
       
       if (Array.isArray(steps)) {
@@ -110,9 +151,9 @@ export class GeminiService {
         });
         return flattenedDescriptions;
       }
-      throw new Error("Invalid JSON structure");
+      throw new Error("Invalid JSON structure: missing 'steps' array");
     } catch (e) {
-      console.error("JSON Parse Error", e);
+      console.error("Step Analysis Error", e);
       throw new Error("步骤分析返回格式错误，请重试。");
     }
   }
@@ -257,10 +298,11 @@ export class GeminiService {
     ${avatarImage ? "3. 角色图（Image 3）：必须包含的角色。" : ""}
 
     绘图要求：
-    - 仅输出第 ${index + 1} 个步骤的单张图片。
-    - 比例必须为 9:16（竖屏）。
-    - 画面主体（物品和角色）必须居中，四周保留安全距离。
-    - 保持与“完整故事板”一致的手绘风格。
+    - 仅输出第 ${index + 1} 个子图
+    - 比例必须为 9:16（竖屏）
+    - 画面主体（物品和角色）必须居中，四周保留安全距离
+    - 画面中的步骤文字也必须保留
+    - 不要改变图中细节，直接输出子图即可
     - 清晰度高，线条流畅。`;
 
     if (watermarkText && watermarkText.trim()) {
@@ -316,8 +358,19 @@ export class GeminiService {
     let prompt = strategy.getCaptionPrompt(videoTitle, contextDescription, avatarPresent);
 
     prompt += `
-        Please return STRICTLY a JSON object with a "captions" key containing an array.
-        Format: { "captions": [ { "title": "...", "content": "..." }, ... ] }`;
+        REQUIRED OUTPUT FORMAT:
+        Output strictly a JSON object with a "captions" key containing an array.
+        Wrap the JSON in a markdown code block.
+        
+        \`\`\`json
+        {
+          "captions": [
+            { "title": "Style 1 Title", "content": "Content..." },
+            { "title": "Style 2 Title", "content": "Content..." }
+          ]
+        }
+        \`\`\`
+    `;
 
     const userContent: any[] = [{ type: "text", text: prompt }];
 
@@ -349,18 +402,15 @@ export class GeminiService {
     if (!content) throw new Error("Caption generation failed (No content).");
 
     try {
-      const jsonMatch = content.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-      const jsonString = jsonMatch ? jsonMatch[0] : content;
-      
-      const parsed = JSON.parse(jsonString);
+      const parsed = this.extractJSON(content);
       const captions = Array.isArray(parsed) ? parsed : (parsed.captions || []);
       if (Array.isArray(captions)) {
         return captions;
       }
-      throw new Error("Format Error");
+      throw new Error("Format Error: Missing 'captions' array");
     } catch (e) {
       console.error("JSON Parse Error", e);
-      return [{ title: "Result", content: content }];
+      return [{ title: "Result (Parse Error)", content: content }];
     }
   }
 }

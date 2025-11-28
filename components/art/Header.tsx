@@ -2,11 +2,10 @@
 import React, { useRef } from 'react';
 import { 
   ChevronLeft, Wand2, Settings, 
-  Box, BrainCircuit, Clipboard, Loader2, Sparkles, RefreshCw, User, Grid3X3, Check
+  Box, BrainCircuit, Clipboard
 } from 'lucide-react';
 import { Button } from '../Button';
 import { ProviderType } from '../../services/llm';
-import { WorkflowStep } from './types';
 import { SocialPlatformStrategy } from '../../services/strategies';
 
 interface HeaderProps {
@@ -22,26 +21,12 @@ interface HeaderProps {
   setUseThinking: (use: boolean) => void;
   apiKey: string;
   setApiKey: (key: string) => void;
-  workflowStep: WorkflowStep;
-  setWorkflowStep: (step: WorkflowStep) => void;
-  isGenerating: boolean;
-  onGenerateBase: () => void;
-  onIntegrateCharacter: () => void;
-  onStartRefine: () => void;
-  onAnalyzeSteps: () => void;
-  isAnalyzing: boolean;
-  hasAvatar: boolean;
-  isRefining: boolean;
-  completedPanelsCount: number;
-  totalPanelsCount: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   onClose, targetPlatform, showSettings, setShowSettings,
   provider, setProvider, baseUrl, setBaseUrl, useThinking, setUseThinking,
-  apiKey, setApiKey, workflowStep, setWorkflowStep, isGenerating,
-  onGenerateBase, onIntegrateCharacter, onStartRefine, onAnalyzeSteps, isAnalyzing,
-  hasAvatar, isRefining, completedPanelsCount, totalPanelsCount
+  apiKey, setApiKey
 }) => {
   const apiKeyInputRef = useRef<HTMLInputElement>(null);
 
@@ -58,89 +43,8 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
-  const renderMainButton = () => {
-    if (isGenerating && workflowStep !== 'refine_mode') {
-      return (
-        <Button disabled size="sm" className="bg-slate-700 text-slate-300">
-          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-          {workflowStep === 'avatar_mode' || workflowStep === 'final_generated' ? "融合中..." : "绘图中..."}
-        </Button>
-      );
-    }
-
-    switch (workflowStep) {
-      case 'input':
-        return (
-          <Button 
-            onClick={onGenerateBase} 
-            size="sm" 
-            className="bg-indigo-600 hover:bg-indigo-500 text-white"
-            disabled={isAnalyzing} 
-          >
-            <Sparkles className="w-4 h-4 mr-2" />
-            2. 开始绘图
-          </Button>
-        );
-      case 'base_generated':
-        return (
-          <div className="flex gap-2">
-            <Button onClick={onGenerateBase} size="sm" variant="secondary" title="重新生成基础图">
-              <RefreshCw className="w-4 h-4" />
-            </Button>
-            <Button onClick={() => setWorkflowStep('avatar_mode')} size="sm" className="bg-pink-600 hover:bg-pink-500 text-white animate-pulse">
-              <User className="w-4 h-4 mr-2" />
-              下一步：添加形象
-            </Button>
-          </div>
-        );
-      case 'avatar_mode':
-        return (
-          <div className="flex gap-2">
-            <Button onClick={() => setWorkflowStep('base_generated')} size="sm" variant="ghost">
-              取消
-            </Button>
-            <Button 
-              onClick={onIntegrateCharacter} 
-              size="sm" 
-              disabled={!hasAvatar}
-              className="bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white"
-            >
-              <Sparkles className="w-4 h-4 mr-2" />
-              融合主角并重绘
-            </Button>
-          </div>
-        );
-      case 'final_generated':
-        return (
-          <div className="flex gap-2">
-            <Button onClick={onIntegrateCharacter} size="sm" variant="secondary" title="重新融合">
-              <RefreshCw className="w-4 h-4" />
-            </Button>
-            <Button onClick={onStartRefine} size="sm" className="bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/30">
-              <Grid3X3 className="w-4 h-4 mr-2" />
-              下一步：拆分与精修
-            </Button>
-          </div>
-        );
-      case 'refine_mode':
-        return (
-          <div className="flex gap-2 items-center">
-            <span className="text-xs text-slate-400 mr-2 hidden sm:inline">
-              {completedPanelsCount} / {totalPanelsCount} 完成
-            </span>
-            <Button disabled variant="secondary" size="sm" className="bg-green-500/20 text-green-400 border-green-500/30">
-              <Check className="w-4 h-4 mr-2" />
-              精修模式
-            </Button>
-          </div>
-        );
-      default:
-        return null;
-    }
-  };
-
   const StrategyIcon = targetPlatform.icon;
-  // Fallback map if needed, or use inline styles/classes dynamically if supported
+  // Fallback map if needed
   let badgeColorClass = "bg-slate-800 text-slate-300";
   if (targetPlatform.id === 'xhs') badgeColorClass = "bg-pink-500/20 text-pink-400 border-pink-500/30";
   if (targetPlatform.id === 'instagram') badgeColorClass = "bg-purple-500/20 text-purple-400 border-purple-500/30";
@@ -250,7 +154,6 @@ export const Header: React.FC<HeaderProps> = ({
             <Clipboard className="w-3 h-3 lg:w-3.5 lg:h-3.5" />
           </button>
         </div>
-        {renderMainButton()}
       </div>
     </div>
   );

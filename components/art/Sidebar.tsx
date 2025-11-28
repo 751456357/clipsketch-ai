@@ -1,8 +1,8 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
-  AlignLeft, ChevronDown, ChevronUp, Loader2, RefreshCw, ListChecks, 
-  User, Plus, Grid3X3, ImageIcon, Download, FileText, Sparkles, Check, Copy, Link, LayoutGrid, Type
+  Loader2, RefreshCw, ListChecks, 
+  Plus, Grid3X3, Check, Copy, Wand2, Sparkles, ChevronDown
 } from 'lucide-react';
 import { Button } from '../Button';
 import { WorkflowStep } from './types';
@@ -17,18 +17,29 @@ interface SidebarProps {
   setContextDescription: (val: string) => void;
   customPrompt: string;
   setCustomPrompt: (val: string) => void;
+  
   isGeneratingImage: boolean;
   isAnalyzingSteps: boolean;
+  
   onAnalyzeSteps: () => void;
+  onGenerateBase: () => void;
+  onIntegrateCharacter: () => void;
+  onStartRefine: () => void;
+  
   stepDescriptions: string[];
+  
   avatarImage: string | null;
   onAvatarUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onRemoveAvatar: () => void;
+  
   watermarkText: string;
   setWatermarkText: (val: string) => void;
+  
   panelCount: number;
   setPanelCount: (count: number) => void;
+  
   generatedArt: string | null;
+  
   isGeneratingCaptions: boolean;
   onGenerateCaptions: () => void;
   captionOptions: CaptionOption[];
@@ -39,341 +50,341 @@ interface SidebarProps {
   defaultPrompt: string;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({
-  workflowStep, targetPlatform, videoTitle,
-  contextDescription, setContextDescription, customPrompt, setCustomPrompt,
-  isGeneratingImage, isAnalyzingSteps, onAnalyzeSteps, stepDescriptions,
-  avatarImage, onAvatarUpload, onRemoveAvatar, watermarkText, setWatermarkText,
-  panelCount, setPanelCount,
-  generatedArt, isGeneratingCaptions, onGenerateCaptions, captionOptions,
-  onCopyCaption, copiedIndex, sourceFrames, subPanels, defaultPrompt
-}) => {
-  const [isInputsCollapsed, setIsInputsCollapsed] = useState(false);
-  const avatarInputRef = React.useRef<HTMLInputElement>(null);
+interface StepItemProps {
+  step: number;
+  title: string;
+  isActive: boolean;
+  isCompleted: boolean;
+  isDisabled: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}
 
-  const handleDownloadImage = (dataUrl: string, filename: string) => {
-    const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+const StepItem: React.FC<StepItemProps> = ({ step, title, isActive, isCompleted, isDisabled, onToggle, children }) => {
+  return (
+    <div className={`border-b border-slate-800 bg-slate-900 transition-opacity duration-300 ${isDisabled ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
+      <button 
+        className="w-full flex items-center justify-between p-4 text-left transition-colors hover:bg-slate-800/50 outline-none"
+        onClick={onToggle}
+        disabled={isDisabled}
+      >
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold border transition-all duration-300
+            ${isActive 
+              ? 'bg-indigo-600 border-indigo-600 text-white scale-110 shadow-lg shadow-indigo-500/20' 
+              : isCompleted 
+                ? 'bg-green-500/10 border-green-500 text-green-500' 
+                : 'border-slate-600 text-slate-500 bg-slate-800'}`}>
+            {isCompleted && !isActive ? <Check className="w-3.5 h-3.5" /> : step}
+          </div>
+          <span className={`text-sm font-medium transition-colors ${isActive ? 'text-white' : isCompleted ? 'text-slate-300' : 'text-slate-400'}`}>
+            {title}
+          </span>
+        </div>
+        <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform duration-300 ${isActive ? 'rotate-180 text-indigo-400' : ''}`} />
+      </button>
+      
+      <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isActive ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+        <div className="p-4 pt-0 pl-12 space-y-4">
+           {children}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const Sidebar: React.FC<SidebarProps> = (props) => {
+  const [activeStep, setActiveStep] = useState<number>(1);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-advance Logic: When analysis is done, jump to step 2
+  const prevAnalyzing = useRef(props.isAnalyzingSteps);
+  useEffect(() => {
+    if (prevAnalyzing.current && !props.isAnalyzingSteps && props.stepDescriptions.length > 0) {
+      setActiveStep(2);
+    }
+    prevAnalyzing.current = props.isAnalyzingSteps;
+  }, [props.isAnalyzingSteps, props.stepDescriptions]);
+
+  // Auto-advance Logic: When generation is done, jump to step 3
+  const prevGenerating = useRef(props.isGeneratingImage);
+  useEffect(() => {
+    if (prevGenerating.current && !props.isGeneratingImage && props.generatedArt) {
+      if (activeStep === 2) setActiveStep(3);
+    }
+    prevGenerating.current = props.isGeneratingImage;
+  }, [props.isGeneratingImage, props.generatedArt, activeStep]);
+
+  // Handle Retry Reset: If Step 1 result is cleared, force Step 1 active
+  useEffect(() => {
+    if (props.stepDescriptions.length === 0) {
+      setActiveStep(1);
+    }
+  }, [props.stepDescriptions.length]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    props.onAvatarUpload(e);
+    if (avatarInputRef.current) avatarInputRef.current.value = '';
   };
 
-  const isChinesePlatform = targetPlatform.id === 'xhs';
+  const completedRefineCount = props.subPanels.filter(p => p.status === 'completed').length;
 
   return (
-    <div className="w-full lg:w-96 h-[45vh] lg:h-full border-t lg:border-t-0 lg:border-r border-slate-800 bg-slate-900/50 flex flex-col shrink-0 order-2 lg:order-1">
-      
-      {/* Section A: Always Visible Inputs */}
-      <div className="p-3 border-b border-slate-800 shrink-0 bg-slate-900">
-        <div className="flex justify-between items-center mb-1.5 cursor-pointer" onClick={() => setIsInputsCollapsed(!isInputsCollapsed)}>
-          <h3 className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
-            <AlignLeft className="w-3.5 h-3.5" />
-            创意输入
-          </h3>
-          <button className="text-slate-500 hover:text-slate-300">
-            {isInputsCollapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-          </button>
-        </div>
+    <div className="w-full lg:w-96 h-[45vh] lg:h-full border-t lg:border-t-0 lg:border-r border-slate-800 bg-slate-950 flex flex-col shrink-0 order-2 lg:order-1 relative z-20">
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
         
-        {!isInputsCollapsed && (
-          <div className="animate-in slide-in-from-top-1 fade-in duration-200">
-            {/* Context Description Input */}
-            <div className="mb-3">
-              <label className="text-[10px] text-slate-500 block mb-1">
-                {videoTitle ? (videoTitle.length > 20 ? videoTitle.substring(0, 20) + '...' : videoTitle) : '视频背景/文案'}
-              </label>
-              <textarea
-                value={contextDescription}
-                onChange={(e) => setContextDescription(e.target.value)}
-                placeholder="从原视频提取的文案或自行输入背景故事..."
-                className="w-full h-16 bg-slate-800 border border-slate-700 rounded-lg p-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all resize-none placeholder-slate-600 custom-scrollbar leading-relaxed"
-                disabled={isGeneratingImage && workflowStep !== 'refine_mode'}
-              />
-            </div>
-
+        {/* Step 1: Creative Analysis */}
+        <StepItem 
+          step={1} 
+          title="创意分析" 
+          isActive={activeStep === 1}
+          isCompleted={props.stepDescriptions.length > 0}
+          isDisabled={false} 
+          onToggle={() => setActiveStep(1)}
+        >
+          <div>
+            <label className="text-[10px] text-slate-500 block mb-1">
+              {props.videoTitle ? (props.videoTitle.length > 15 ? props.videoTitle.substring(0, 15) + '...' : props.videoTitle) : '视频背景'}
+            </label>
+            <textarea
+              value={props.contextDescription}
+              onChange={(e) => props.setContextDescription(e.target.value)}
+              placeholder="输入背景故事..."
+              className="w-full h-14 bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all resize-none placeholder-slate-700 custom-scrollbar mb-3"
+              disabled={props.isGeneratingImage || props.isAnalyzingSteps}
+            />
+            
             <div className="flex justify-between items-center mb-1">
-              <label className="text-[10px] text-slate-500">绘图提示词 (Prompt)</label>
-              <button 
-                onClick={() => setCustomPrompt(defaultPrompt)}
-                className="text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors"
-                disabled={isGeneratingImage && workflowStep !== 'refine_mode'}
-              >
-                恢复默认
-              </button>
+                <label className="text-[10px] text-slate-500">提示词 (Prompt)</label>
+                {!props.isGeneratingImage && !props.isAnalyzingSteps && (
+                  <button onClick={() => props.setCustomPrompt(props.defaultPrompt)} className="text-[10px] text-indigo-400 hover:text-indigo-300">重置</button>
+                )}
             </div>
             <textarea
-              value={customPrompt}
-              onChange={(e) => setCustomPrompt(e.target.value)}
-              className="w-full h-16 bg-slate-800 border border-slate-700 rounded-lg p-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all resize-none placeholder-slate-600 custom-scrollbar leading-relaxed mb-3"
-              disabled={isGeneratingImage && workflowStep !== 'refine_mode'}
+              value={props.customPrompt}
+              onChange={(e) => props.setCustomPrompt(e.target.value)}
+              className="w-full h-14 bg-slate-950 border border-slate-800 rounded-lg p-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all resize-none placeholder-slate-700 custom-scrollbar mb-3"
+              disabled={props.isGeneratingImage || props.isAnalyzingSteps}
             />
-            
+
             <Button 
-              onClick={onAnalyzeSteps}
-              disabled={isAnalyzingSteps}
+              onClick={props.onAnalyzeSteps}
+              disabled={props.isAnalyzingSteps || props.isGeneratingImage}
               size="sm"
-              variant="secondary"
-              className="w-full border-dashed border-slate-600 text-slate-300 hover:text-white hover:border-slate-500 h-8 text-xs"
+              className={`w-full ${props.stepDescriptions.length > 0 ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}
             >
-              {isAnalyzingSteps ? (
+              {props.isAnalyzingSteps ? (
                 <>
-                  <Loader2 className="w-3 h-3 mr-2 animate-spin" />
-                  {isChinesePlatform ? "分析步骤中..." : "Analyzing Steps..."}
+                  <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                  分析中...
                 </>
-              ) : stepDescriptions.length > 0 ? (
+              ) : props.stepDescriptions.length > 0 ? (
                 <>
-                  <RefreshCw className="w-3 h-3 mr-2 text-indigo-400" />
-                  {isChinesePlatform ? "分析完成 (点击重试)" : "Analysis Done (Retry)"}
+                  <RefreshCw className="w-3.5 h-3.5 mr-2" />
+                  重新分析
                 </>
               ) : (
                 <>
-                  <ListChecks className="w-3 h-3 mr-2" />
-                  1. {isChinesePlatform ? "分析步骤内容" : "Analyze Steps"}
+                  <ListChecks className="w-3.5 h-3.5 mr-2" />
+                  分析关键步骤
                 </>
               )}
             </Button>
           </div>
-        )}
-      </div>
+        </StepItem>
 
-      {/* Section B: Dynamic Controls */}
-      
-      {/* Avatar Upload */}
-      {(workflowStep === 'avatar_mode' || workflowStep === 'final_generated' || workflowStep === 'refine_mode') && (
-        <div className="p-3 border-b border-slate-800 shrink-0 bg-slate-900/80 animate-in slide-in-from-left">
-          <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-2">
-            <User className="w-3.5 h-3.5 text-pink-400" />
-            {workflowStep === 'refine_mode' ? "当前主角" : "添加主角"}
-            <span className="text-[10px] text-slate-500 font-normal ml-auto">
-              {avatarImage ? "已上传" : "未上传"}
-            </span>
-          </label>
-          
-          <div className="flex items-center gap-3">
-            <div 
-              onClick={() => workflowStep === 'avatar_mode' && avatarInputRef.current?.click()}
-              className={`w-12 h-12 rounded-lg border-2 border-dashed flex items-center justify-center transition-all overflow-hidden relative shrink-0 ${
-                avatarImage 
-                ? 'border-pink-500 bg-slate-800 cursor-default' 
-                : 'border-slate-700 hover:border-slate-500 hover:bg-slate-800 cursor-pointer'
-              }`}
-            >
-              {avatarImage ? (
-                <img src={avatarImage} alt="Avatar" className="w-full h-full object-cover" />
-              ) : (
-                <Plus className="w-5 h-5 text-slate-500" />
-              )}
-            </div>
-            
-            <div className="flex-1 min-w-0">
-              {workflowStep === 'avatar_mode' && (
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  ref={avatarInputRef} 
-                  className="hidden"
-                  onChange={onAvatarUpload}
-                />
-              )}
-              {avatarImage ? (
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-white truncate">已就绪</span>
-                  {workflowStep === 'avatar_mode' && (
-                    <button onClick={onRemoveAvatar} className="text-[10px] text-red-400 hover:text-red-300 text-left">移除更换</button>
-                  )}
-                </div>
-              ) : (
-                <p className="text-[10px] text-slate-500 leading-tight">
-                  {workflowStep === 'refine_mode' ? "无主角模式" : "上传猫咪、公仔或头像"}
-                </p>
-              )}
-            </div>
-          </div>
-          
-          {/* Watermark Input - Only show if in relevant steps */}
-          {(workflowStep === 'avatar_mode' || workflowStep === 'final_generated' || workflowStep === 'refine_mode') && (
-            <div className="mt-3 relative">
-               <label className="text-[10px] text-slate-500 flex items-center gap-1 mb-1">
-                 <Type className="w-3 h-3" />
-                 个性水印 (可选)
-               </label>
-               <input
-                 type="text"
-                 value={watermarkText}
-                 onChange={(e) => setWatermarkText(e.target.value)}
-                 placeholder="例如: @ClipSketch-AI"
-                 className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-               />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Panel Count Input */}
-      {workflowStep === 'final_generated' && (
-        <div className="p-3 border-b border-slate-800 shrink-0 bg-slate-900/60">
-          <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-2">
-            <Grid3X3 className="w-3.5 h-3.5 text-indigo-400" />
-            子图数量
-          </label>
-          <div className="flex items-center gap-2">
-            <input 
-              type="number"
-              min="1"
-              max="20"
-              value={panelCount}
-              onChange={(e) => setPanelCount(parseInt(e.target.value) || 0)}
-              className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-white w-16 focus:ring-indigo-500 focus:border-indigo-500"
-            />
-            <span className="text-xs text-slate-500">张 (与步骤数对应)</span>
-          </div>
-        </div>
-      )}
-
-      {/* Panorama Preview */}
-      {workflowStep === 'refine_mode' && (
-        <div className="p-3 border-b border-slate-800 shrink-0 bg-slate-900/60 animate-in slide-in-from-left">
-          <div className="flex justify-between items-center mb-2">
-            <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-              <ImageIcon className="w-3.5 h-3.5 text-indigo-400" />
-              全景底图
-            </label>
+        {/* Step 2: Base Generation - ONLY APPEARS IF Step 1 Finished */}
+        {props.stepDescriptions.length > 0 && (
+          <StepItem 
+            step={2} 
+            title="画面生成" 
+            isActive={activeStep === 2}
+            isCompleted={!!props.generatedArt}
+            isDisabled={false}
+            onToggle={() => setActiveStep(2)}
+          >
+            <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+              AI 将根据分析结果绘制基础分镜。
+            </p>
             <Button 
-              size="icon" 
-              variant="ghost" 
-              className="h-6 w-6 text-slate-400 hover:text-white"
-              onClick={() => generatedArt && handleDownloadImage(generatedArt, 'panorama_base.png')}
-              title="下载全景图"
-            >
-              <Download className="w-3.5 h-3.5" />
-            </Button>
-          </div>
-          {generatedArt && (
-            <div className="rounded-lg overflow-hidden border border-slate-700/50 shadow-sm max-h-40">
-              <img src={generatedArt} alt="Panorama" className="w-full h-full object-cover" />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Captions */}
-      {(workflowStep === 'base_generated' || workflowStep === 'final_generated' || workflowStep === 'refine_mode') && (
-        <div className="flex flex-col bg-slate-900 animate-in slide-in-from-bottom duration-300 shrink-0 border-b border-slate-800 max-h-[40vh]">
-          <div className="p-3 border-b border-slate-800 flex items-center justify-between bg-slate-900 shrink-0">
-            <h3 className="text-xs font-semibold text-slate-300 flex items-center gap-2">
-              <FileText className={`w-3.5 h-3.5 ${targetPlatform.primaryColorClass}`} />
-              {isChinesePlatform ? '社交媒体文案' : 'Social Captions'}
-            </h3>
-            
-            <Button 
-              onClick={onGenerateCaptions}
-              isLoading={isGeneratingCaptions}
-              disabled={isGeneratingCaptions || isGeneratingImage || (workflowStep === 'refine_mode' && subPanels.some(p => p.status === 'generating'))}
+              onClick={props.onGenerateBase}
+              disabled={props.isGeneratingImage}
               size="sm"
-              variant="secondary"
-              className="h-6 text-xs px-2"
+              className={`w-full ${props.generatedArt ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}
             >
-              {captionOptions.length > 0 ? (
+              {props.isGeneratingImage && !props.generatedArt ? (
                 <>
-                  <RefreshCw className="w-3 h-3 mr-1.5" />
+                  <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                  绘图中...
+                </>
+              ) : props.generatedArt ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 mr-2" />
                   重新生成
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-3 h-3 mr-1.5" />
-                  生成文案
+                  <Wand2 className="w-3.5 h-3.5 mr-2" />
+                  生成手绘分镜
                 </>
               )}
             </Button>
-          </div>
+          </StepItem>
+        )}
 
-          <div className="overflow-y-auto custom-scrollbar p-3 relative bg-slate-900 min-h-[100px]">
-            {isGeneratingCaptions ? (
-              <div className="flex flex-col items-center justify-center text-slate-500 gap-3 text-xs py-4">
-                <Loader2 className={`w-6 h-6 animate-spin ${targetPlatform.primaryColorClass}`} />
-                <span className="animate-pulse">
-                  {isChinesePlatform ? "正在构思爆款文案..." : "Crafting aesthetic captions..."}
-                </span>
-              </div>
-            ) : captionOptions.length > 0 ? (
-              <div className="space-y-4">
-                {captionOptions.map((opt, idx) => (
-                  <div key={idx} className="bg-slate-800/50 border border-slate-700 rounded-xl p-3 hover:border-pink-500/30 transition-colors group">
-                    <div className="flex justify-between items-start mb-2 gap-2">
-                      <h4 className="font-bold text-xs lg:text-sm text-pink-200 line-clamp-1 flex-1" title={opt.title}>
-                        {opt.title}
-                      </h4>
-                      <button 
-                        onClick={() => onCopyCaption(`${opt.title}\n\n${opt.content}`, idx)}
-                        className={`shrink-0 p-1.5 rounded-md transition-all ${
-                          copiedIndex === idx 
-                          ? "bg-green-500/20 text-green-400" 
-                          : "bg-slate-700 text-slate-400 hover:bg-indigo-600 hover:text-white"
-                        }`}
-                        title="复制标题和内容"
-                      >
-                        {copiedIndex === idx ? <Check className="w-3 h-3 lg:w-3.5 lg:h-3.5" /> : <Copy className="w-3 h-3 lg:w-3.5 lg:h-3.5" />}
-                      </button>
-                    </div>
-                    <div className="text-[10px] lg:text-xs text-slate-300 leading-relaxed whitespace-pre-wrap font-sans bg-slate-900/50 p-2 rounded-lg max-h-40 overflow-y-auto custom-scrollbar">
-                      {opt.content}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center text-slate-600 p-2 text-center">
-                <FileText className="w-6 h-6 mb-2 opacity-20" />
-                <p className="text-xs max-w-[180px]">
-                  {isChinesePlatform 
-                    ? "点击上方按钮生成匹配的文案。"
-                    : "Click above to generate matching captions."}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Section C: Reference Frames */}
-      <div className="flex-1 overflow-hidden flex flex-col min-h-0 bg-slate-900/30">
-        <div className="p-2 pb-1 shrink-0 bg-slate-900/50">
-          <h3 className="text-xs font-semibold text-slate-400 flex items-center gap-2">
-            <LayoutGrid className="w-3.5 h-3.5" />
-            参考帧 ({sourceFrames.length})
-          </h3>
-        </div>
-        <div className="flex-1 overflow-y-auto custom-scrollbar px-3 pb-3 space-y-2 pt-2">
-          {sourceFrames.map((frame, index) => {
-            const desc = stepDescriptions[index];
-            const prevDesc = index > 0 ? stepDescriptions[index - 1] : null;
-            const isShared = desc && desc === prevDesc;
-
-            return (
-              <div key={frame.tagId} className={`flex gap-3 items-start group ${isShared ? 'opacity-70' : ''}`}>
-                <div className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center text-[10px] text-slate-500 font-mono shrink-0 mt-1 border border-slate-700">
-                  {index + 1}
-                </div>
-                <div className="flex-1 space-y-2">
-                  <div className="relative aspect-[9/16] rounded-md overflow-hidden bg-black border border-slate-800 shadow-sm w-24">
-                    <img src={frame.data} alt="Frame" className="w-full h-full object-contain opacity-80" />
-                  </div>
-                  {desc && (
-                    <div className="text-[10px] bg-slate-800/50 p-2 rounded border border-slate-700/50 text-slate-300">
-                      {isShared ? (
-                        <span className="flex items-center gap-1 italic text-slate-500"><Link className="w-3 h-3"/> {isChinesePlatform ? "同上..." : "Same step..."}</span>
+        {/* Subsequent Steps - ONLY APPEAR IF Step 2 Finished */}
+        {props.generatedArt && (
+          <>
+            {/* Step 3: Character Integration */}
+            <StepItem 
+              step={3} 
+              title="角色融合 (可选)" 
+              isActive={activeStep === 3}
+              isCompleted={props.workflowStep === 'final_generated' || props.workflowStep === 'refine_mode'}
+              isDisabled={!props.generatedArt}
+              onToggle={() => props.generatedArt && setActiveStep(3)}
+            >
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                    <div 
+                      onClick={() => avatarInputRef.current?.click()}
+                      className={`w-12 h-12 rounded-lg border-2 border-dashed flex items-center justify-center transition-all overflow-hidden relative shrink-0 cursor-pointer ${
+                        props.avatarImage ? 'border-pink-500 bg-slate-950' : 'border-slate-700 hover:border-slate-500 hover:bg-slate-800'
+                      }`}
+                    >
+                      {props.avatarImage ? (
+                        <img src={props.avatarImage} alt="Avatar" className="w-full h-full object-cover" />
                       ) : (
-                        <span>{desc}</span>
+                        <Plus className="w-5 h-5 text-slate-500" />
                       )}
                     </div>
-                  )}
+                    <div className="flex-1 min-w-0">
+                      <input type="file" accept="image/*" ref={avatarInputRef} className="hidden" onChange={handleFileChange} />
+                      {props.avatarImage ? (
+                        <div className="flex flex-col">
+                            <span className="text-xs text-white">角色图已上传</span>
+                            <button onClick={props.onRemoveAvatar} className="text-[10px] text-red-400 hover:text-red-300 text-left w-fit">移除</button>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-500 block">上传角色图以融入画面</span>
+                      )}
+                    </div>
                 </div>
+
+                {props.avatarImage && (
+                  <div>
+                    <label className="text-[10px] text-slate-500 flex items-center gap-1 mb-1">
+                        个姓水印
+                    </label>
+                    <input
+                      type="text"
+                      value={props.watermarkText}
+                      onChange={(e) => props.setWatermarkText(e.target.value)}
+                      placeholder="@ClipSketch"
+                      className="w-full h-8 bg-slate-950 border border-slate-800 rounded px-2 text-xs text-white focus:outline-none focus:border-pink-500"
+                    />
+                  </div>
+                )}
+
+                <Button 
+                  onClick={props.onIntegrateCharacter}
+                  disabled={props.isGeneratingImage || !props.avatarImage}
+                  size="sm"
+                  className={`w-full ${!props.avatarImage ? 'opacity-50 cursor-not-allowed bg-slate-800' : 'bg-pink-600 hover:bg-pink-500 text-white'}`}
+                >
+                    {props.isGeneratingImage && props.avatarImage ? (
+                      <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5 mr-2" />
+                    )}
+                    {props.workflowStep === 'final_generated' ? "重新融合" : "开始融合"}
+                </Button>
               </div>
-            );
-          })}
-        </div>
+            </StepItem>
+
+            {/* Step 4: Refine */}
+            <StepItem 
+              step={4} 
+              title="分镜精修" 
+              isActive={activeStep === 4}
+              isCompleted={completedRefineCount > 0}
+              isDisabled={!props.generatedArt}
+              onToggle={() => props.generatedArt && setActiveStep(4)}
+            >
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-slate-400 whitespace-nowrap">切分数量</label>
+                  <input 
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={props.panelCount}
+                    onChange={(e) => props.setPanelCount(parseInt(e.target.value) || 0)}
+                    className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-xs text-white w-full focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+                <Button 
+                  onClick={props.onStartRefine}
+                  disabled={props.isGeneratingImage || props.subPanels.some(p => p.status === 'generating')}
+                  size="sm"
+                  variant="secondary"
+                  className="w-full bg-slate-800 hover:bg-slate-700 text-white border-slate-700"
+                >
+                  <Grid3X3 className="w-3.5 h-3.5 mr-2" />
+                  开启精修模式
+                </Button>
+              </div>
+            </StepItem>
+
+            {/* Step 5: Captions */}
+            <StepItem 
+              step={5} 
+              title="社交文案" 
+              isActive={activeStep === 5}
+              isCompleted={props.captionOptions.length > 0}
+              isDisabled={!props.generatedArt}
+              onToggle={() => props.generatedArt && setActiveStep(5)}
+            >
+              <Button 
+                onClick={props.onGenerateCaptions}
+                isLoading={props.isGeneratingCaptions}
+                disabled={props.isGeneratingCaptions || props.isGeneratingImage}
+                size="sm"
+                className="w-full mb-3 bg-slate-800 hover:bg-slate-700 text-slate-300"
+              >
+                {props.captionOptions.length > 0 ? "重新生成文案" : "生成匹配文案"}
+              </Button>
+
+              {props.captionOptions.length > 0 && (
+                <div className="space-y-3">
+                  {props.captionOptions.map((opt, idx) => (
+                    <div key={idx} className="bg-slate-950 border border-slate-800 rounded-lg p-2 hover:border-slate-600 transition-colors group">
+                      <div className="flex justify-between items-start mb-1 gap-2">
+                        <span className="text-[10px] font-bold text-slate-400 line-clamp-1 flex-1" title={opt.title}>
+                          {opt.title}
+                        </span>
+                        <button 
+                          onClick={() => props.onCopyCaption(`${opt.title}\n\n${opt.content}`, idx)}
+                          className={`shrink-0 p-1 rounded transition-all ${
+                            props.copiedIndex === idx 
+                            ? "text-green-400" 
+                            : "text-slate-500 hover:text-white"
+                          }`}
+                        >
+                          {props.copiedIndex === idx ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      </div>
+                      <div className="text-[10px] text-slate-500 leading-relaxed whitespace-pre-wrap max-h-32 overflow-y-auto custom-scrollbar">
+                        {opt.content}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </StepItem>
+          </>
+        )}
+
       </div>
     </div>
   );

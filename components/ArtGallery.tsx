@@ -82,9 +82,9 @@ export const ArtGallery: React.FC<ArtGalleryProps> = ({ tags, videoUrl, videoTit
   
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   
-  // Initialize gallery by capturing frames ONLY after platform is selected
+  // Initialize gallery by capturing frames IMMEDIATELY (Parallel with Platform Selection)
   useEffect(() => {
-    if (activeStrategy && sourceFrames.length === 0) {
+    if (sourceFrames.length === 0 && !isLoadingFrames && videoUrl) {
         const initGallery = async () => {
         try {
             setIsLoadingFrames(true);
@@ -100,7 +100,7 @@ export const ArtGallery: React.FC<ArtGalleryProps> = ({ tags, videoUrl, videoTit
         };
         initGallery();
     }
-  }, [tags, videoUrl, activeStrategy]);
+  }, [tags, videoUrl]); // Removed activeStrategy dependency
 
   useEffect(() => {
     localStorage.setItem('gemini_api_key', apiKey);
@@ -161,6 +161,10 @@ export const ArtGallery: React.FC<ArtGalleryProps> = ({ tags, videoUrl, videoTit
       const reader = new FileReader();
       reader.onloadend = () => {
         setAvatarImage(reader.result as string);
+        // If we are already past base generation, entering avatar upload suggests we might want to integrate
+        if (workflowStep === 'base_generated') {
+          setWorkflowStep('avatar_mode');
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -174,9 +178,16 @@ export const ArtGallery: React.FC<ArtGalleryProps> = ({ tags, videoUrl, videoTit
   const handleAnalyzeSteps = async () => {
     if (sourceFrames.length === 0 || !activeStrategy) return;
     
+    // RESET FUTURE STEPS to enforce sequential flow
+    setStepDescriptions([]); // This hides Step 2 immediately in Sidebar
+    setBaseArt(null);
+    setGeneratedArt(null);
+    setSubPanels([]);
+    setCaptionOptions([]);
+    setWorkflowStep('input');
+
     setIsAnalyzingSteps(true);
     setError(null);
-    setStepDescriptions([]);
     
     try {
       const steps = await GeminiService.analyzeSteps(
@@ -203,9 +214,15 @@ export const ArtGallery: React.FC<ArtGalleryProps> = ({ tags, videoUrl, videoTit
       return;
     }
 
+    // RESET FUTURE STEPS to prevent stale state
+    setSubPanels([]);
+    setCaptionOptions([]);
+    // Clearing generated art forces Step 3/4/5 to hide on retry
+    setBaseArt(null);
+    setGeneratedArt(null);
+    
     setIsGeneratingImage(true);
     setError(null);
-    setWorkflowStep('input');
     
     try {
       const img = await GeminiService.generateBaseImage(
@@ -236,6 +253,9 @@ export const ArtGallery: React.FC<ArtGalleryProps> = ({ tags, videoUrl, videoTit
       return;
     }
 
+    // RESET FUTURE STEPS
+    setSubPanels([]);
+    
     setIsGeneratingImage(true);
     setError(null);
     
@@ -345,6 +365,17 @@ export const ArtGallery: React.FC<ArtGalleryProps> = ({ tags, videoUrl, videoTit
 
   // --- RENDER ---
   
+  // 1. Show Platform Selector if not selected (Allows parallel frame loading)
+  if (!activeStrategy) {
+    return (
+      <PlatformSelector 
+        onSelect={setActiveStrategy} 
+        onClose={onClose} 
+      />
+    );
+  }
+
+  // 2. If Platform selected, but frames still loading? Show Loading.
   if (isLoadingFrames) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-md">
@@ -353,15 +384,6 @@ export const ArtGallery: React.FC<ArtGalleryProps> = ({ tags, videoUrl, videoTit
           <p className="text-white text-lg font-medium">正在提取视频帧...</p>
         </div>
       </div>
-    );
-  }
-
-  if (!activeStrategy) {
-    return (
-      <PlatformSelector 
-        onSelect={setActiveStrategy} 
-        onClose={onClose} 
-      />
     );
   }
 
@@ -380,18 +402,6 @@ export const ArtGallery: React.FC<ArtGalleryProps> = ({ tags, videoUrl, videoTit
         setUseThinking={setUseThinking}
         apiKey={apiKey}
         setApiKey={setApiKey}
-        workflowStep={workflowStep}
-        setWorkflowStep={setWorkflowStep}
-        isGenerating={isGeneratingImage}
-        onGenerateBase={handleGenerateBase}
-        onIntegrateCharacter={handleIntegrateCharacter}
-        onStartRefine={handleStartRefine}
-        onAnalyzeSteps={handleAnalyzeSteps}
-        isAnalyzing={isAnalyzingSteps}
-        hasAvatar={!!avatarImage}
-        isRefining={workflowStep === 'refine_mode'}
-        completedPanelsCount={subPanels.filter(p => p.status === 'completed').length}
-        totalPanelsCount={panelCount}
       />
       
       {error && (
@@ -411,21 +421,33 @@ export const ArtGallery: React.FC<ArtGalleryProps> = ({ tags, videoUrl, videoTit
           setContextDescription={setContextDescription}
           customPrompt={customPrompt}
           setCustomPrompt={setCustomPrompt}
+          
           isGeneratingImage={isGeneratingImage}
           isAnalyzingSteps={isAnalyzingSteps}
+          
           onAnalyzeSteps={handleAnalyzeSteps}
+          onGenerateBase={handleGenerateBase}
+          onIntegrateCharacter={handleIntegrateCharacter}
+          onStartRefine={handleStartRefine}
+          
           stepDescriptions={stepDescriptions}
+          
           avatarImage={avatarImage}
           onAvatarUpload={handleAvatarUpload}
           onRemoveAvatar={() => setAvatarImage(null)}
+          
           watermarkText={watermarkText}
           setWatermarkText={setWatermarkText}
+          
           panelCount={panelCount}
           setPanelCount={setPanelCount}
+          
           generatedArt={generatedArt}
+          
           isGeneratingCaptions={isGeneratingCaptions}
           onGenerateCaptions={handleGenerateCaption}
           captionOptions={captionOptions}
+          
           onCopyCaption={handleCopyCaption}
           copiedIndex={copiedIndex}
           sourceFrames={sourceFrames}
@@ -437,15 +459,8 @@ export const ArtGallery: React.FC<ArtGalleryProps> = ({ tags, videoUrl, videoTit
         <div className="flex-1 bg-black/20 relative p-4 lg:p-6 flex flex-col min-w-0 order-1 lg:order-2 h-[55vh] lg:h-full overflow-y-auto custom-scrollbar">
            {workflowStep === 'input' && <Step1Input isGenerating={isGeneratingImage} />}
            
-           {workflowStep === 'base_generated' && (
+           {(workflowStep === 'base_generated' || workflowStep === 'avatar_mode') && (
              <Step2Base 
-               imageSrc={generatedArt} 
-               isGenerating={isGeneratingImage} 
-             />
-           )}
-           
-           {workflowStep === 'avatar_mode' && (
-             <Step3Avatar 
                imageSrc={generatedArt} 
                isGenerating={isGeneratingImage} 
              />

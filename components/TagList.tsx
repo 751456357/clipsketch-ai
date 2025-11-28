@@ -1,3 +1,4 @@
+
 import React, { useState, useRef } from 'react';
 import { Tag } from '../types';
 import { formatTime, exportVideoFrames, generateId } from '../utils';
@@ -154,7 +155,8 @@ export const TagList: React.FC<TagListProps> = ({
               title="导入 TXT 标记"
               className="h-8 w-8 text-slate-400 hover:text-white hover:bg-slate-800"
             >
-              <Upload className="w-4 h-4" />
+              {/* Swapped icon: Upload -> Download per user request */}
+              <Download className="w-4 h-4" />
             </Button>
             <Button 
               variant="ghost" 
@@ -178,8 +180,9 @@ export const TagList: React.FC<TagListProps> = ({
             title="导出为 TXT"
             className="text-xs h-9"
           >
-            <Download className="w-3.5 h-3.5 mr-2" />
-            TXT
+            {/* Swapped icon: Download -> Upload per user request */}
+            <Upload className="w-3.5 h-3.5 mr-2" />
+            导出 TXT
           </Button>
            <Button 
             variant="secondary" 
@@ -194,7 +197,7 @@ export const TagList: React.FC<TagListProps> = ({
             ) : (
               <ImageIcon className="w-3.5 h-3.5 mr-2" />
             )}
-            图片 ZIP
+            导出图片
           </Button>
         </div>
 
@@ -261,3 +264,4 @@ export const TagList: React.FC<TagListProps> = ({
     </div>
   );
 };
+    
