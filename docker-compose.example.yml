@@ -1,0 +1,9 @@
+services:
+  clipsketch-ai:
+    image: ghcr.io/751456357/clipsketch-ai:main
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${HOST_PORT:-8080}:3000"
+    restart: unless-stopped
